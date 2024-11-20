@@ -8,7 +8,7 @@ import (
 	"github.com/go-kit/log"
 )
 
-var _ slog.Handler = GoKitHandler{}
+var _ slog.Handler = (*GoKitHandler)(nil)
 
 var defaultGoKitLogger = log.NewLogfmtLogger(os.Stderr)
 
@@ -38,10 +38,10 @@ func NewGoKitHandler(logger log.Logger, level slog.Leveler) GoKitHandler {
 		level = &slog.LevelVar{} // Info level by default.
 	}
 
-	return GoKitHandler{logger: logger, level: level}
+	return &GoKitHandler{logger: logger, level: level}
 }
 
-func (h GoKitHandler) Enabled(_ context.Context, level slog.Level) bool {
+func (h *GoKitHandler) Enabled(_ context.Context, level slog.Level) bool {
 	if h.level == nil {
 		h.level = &slog.LevelVar{} // Info level by default.
 	}
@@ -49,7 +49,7 @@ func (h GoKitHandler) Enabled(_ context.Context, level slog.Level) bool {
 	return level >= h.level.Level()
 }
 
-func (h GoKitHandler) Handle(_ context.Context, record slog.Record) error {
+func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 	if h.logger == nil {
 		h.logger = defaultGoKitLogger
 	}
@@ -77,7 +77,7 @@ func (h GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 	return logger.Log(pairs...)
 }
 
-func (h GoKitHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+func (h *GoKitHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	pairs := make([]any, 0, 2*len(attrs))
 	for _, a := range attrs {
 		pairs = appendPair(pairs, h.group, a)
@@ -87,10 +87,10 @@ func (h GoKitHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		pairs = append(h.preformatted, pairs...)
 	}
 
-	return GoKitHandler{logger: h.logger, preformatted: pairs, group: h.group}
+	return &GoKitHandler{logger: h.logger, preformatted: pairs, group: h.group}
 }
 
-func (h GoKitHandler) WithGroup(name string) slog.Handler {
+func (h *GoKitHandler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
@@ -100,7 +100,7 @@ func (h GoKitHandler) WithGroup(name string) slog.Handler {
 		g = h.group + "." + g
 	}
 
-	return GoKitHandler{logger: h.logger, preformatted: h.preformatted, group: g}
+	return &GoKitHandler{logger: h.logger, preformatted: h.preformatted, group: g}
 }
 
 func appendPair(pairs []any, groupPrefix string, attr slog.Attr) []any {

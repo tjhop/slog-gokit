@@ -25,7 +25,7 @@ type GoKitHandler struct {
 // logger. Calls to the slog logger are chained to the handler's internal
 // go-kit logger. If provided a level, it will be used to filter log events in
 // the handler's Enabled() method.
-func NewGoKitHandler(logger log.Logger, level slog.Leveler) GoKitHandler {
+func NewGoKitHandler(logger log.Logger, level slog.Leveler) slog.Handler {
 	if logger == nil {
 		logger = defaultGoKitLogger
 	}

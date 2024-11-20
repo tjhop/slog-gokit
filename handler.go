@@ -10,13 +10,6 @@ import (
 
 var _ slog.Handler = GoKitHandler{}
 
-// For tests only:
-// Enable this to skip adding slog's default timestamp kv pair into the kv
-// pairs passed to the handler's underlying go-kit logger. This is needed so
-// that non-deterministic output can be stripped from the log calls and play
-// nicely with Mock.
-var dropTimestamp = false
-
 var defaultGoKitLogger = log.NewLogfmtLogger(os.Stderr)
 
 // GoKitHandler implements the slog.Handler interface. It holds an internal
@@ -70,7 +63,7 @@ func (h GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 	// preformatted vals, all things we more or less know the size of at
 	// creation time here.
 	pairs := make([]any, 0, (2 * record.NumAttrs()))
-	if !record.Time.IsZero() && !dropTimestamp {
+	if !record.Time.IsZero() {
 		pairs = append(pairs, "time", record.Time)
 	}
 	pairs = append(pairs, "msg", record.Message)

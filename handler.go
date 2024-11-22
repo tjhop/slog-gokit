@@ -87,7 +87,12 @@ func (h *GoKitHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		pairs = append(h.preformatted, pairs...)
 	}
 
-	return &GoKitHandler{logger: h.logger, preformatted: pairs, group: h.group}
+	return &GoKitHandler{
+		logger:       h.logger,
+		level:        h.level,
+		preformatted: pairs,
+		group:        h.group,
+	}
 }
 
 func (h *GoKitHandler) WithGroup(name string) slog.Handler {
@@ -100,7 +105,12 @@ func (h *GoKitHandler) WithGroup(name string) slog.Handler {
 		g = h.group + "." + g
 	}
 
-	return &GoKitHandler{logger: h.logger, preformatted: h.preformatted, group: g}
+	return &GoKitHandler{
+		logger:       h.logger,
+		level:        h.level,
+		preformatted: h.preformatted,
+		group:        g,
+	}
 }
 
 func appendPair(pairs []any, groupPrefix string, attr slog.Attr) []any {

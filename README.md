@@ -29,7 +29,7 @@ func main() {
 	slogger := slog.New(slgk.NewGoKitHandler(gklogger, nil))
 	slogger.WithGroup("example_group").With("foo", "bar").Info("hello world")
 
-	// The slog Logger produced logs at slog.LevelInfo by default.
+	// The slog Logger produces logs at slog.LevelInfo by default.
 	// Optionally create an slog.Leveler to dynamically adjust the level of
 	// the slog Logger.
 	lvl := &slog.LevelVar{}

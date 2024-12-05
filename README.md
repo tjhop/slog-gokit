@@ -13,6 +13,12 @@ This library provides a custom slog.Handler that wraps a go-kit Logger, so that 
 go get github.com/tjhop/slog-gokit
 ```
 
+## Documentation
+
+Documentation can be found here:
+
+https://pkg.go.dev/github.com/tjhop/slog-gokit
+
 ## Example
 
 ```go

@@ -1,4 +1,4 @@
-package sloggokit
+package sloggokit_test
 
 import (
 	"bytes"
@@ -12,6 +12,8 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-logfmt/logfmt"
 	"github.com/stretchr/testify/require"
+
+	slgk "github.com/tjhop/slog-gokit"
 )
 
 var (
@@ -21,7 +23,7 @@ var (
 func TestNewGoKitHandler(t *testing.T) {
 	t.Run("nil level", func(t *testing.T) {
 		var buf bytes.Buffer
-		h := NewGoKitHandler(log.NewLogfmtLogger(&buf), nil)
+		h := slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf), nil)
 
 		results := func() []map[string]any {
 			var ms []map[string]any
@@ -54,7 +56,7 @@ func TestNewGoKitHandler(t *testing.T) {
 		var buf bytes.Buffer
 		lvl := &slog.LevelVar{}
 		lvl.Set(slog.LevelDebug)
-		h := NewGoKitHandler(log.NewLogfmtLogger(&buf), lvl)
+		h := slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf), lvl)
 
 		results := func() []map[string]any {
 			var ms []map[string]any
@@ -88,7 +90,7 @@ func TestNewGoKitHandler(t *testing.T) {
 		lvl := &slog.LevelVar{}
 
 		gklogger := log.NewLogfmtLogger(&buf)
-		h := NewGoKitHandler(gklogger, lvl)
+		h := slgk.NewGoKitHandler(gklogger, lvl)
 		slogger := slog.New(h)
 
 		wantedLevelCounts := map[string]int{"info": 1, "debug": 1}

@@ -40,17 +40,14 @@ func TestNewGoKitHandler(t *testing.T) {
 				}
 				ms = append(ms, m)
 			}
-			if err := dec.Err(); err != nil {
-				t.Fatal(err)
-			}
+			err := dec.Err()
+			require.NoError(t, err, "failed to decode logfmt entry")
 
 			return ms
 		}
 
 		err := slogtest.TestHandler(h, results)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err, "failed slog handler test suite")
 	})
 	t.Run("debug level", func(t *testing.T) {
 		var buf bytes.Buffer
@@ -73,17 +70,14 @@ func TestNewGoKitHandler(t *testing.T) {
 				}
 				ms = append(ms, m)
 			}
-			if err := dec.Err(); err != nil {
-				t.Fatal(err)
-			}
+			err := dec.Err()
+			require.NoError(t, err, "failed to decode logfmt entry")
 
 			return ms
 		}
 
 		err := slogtest.TestHandler(h, results)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err, "failed slog handler test suite")
 	})
 	t.Run("dynamic level", func(t *testing.T) {
 		var buf bytes.Buffer

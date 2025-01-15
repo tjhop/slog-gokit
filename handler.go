@@ -130,11 +130,25 @@ func appendPair(pairs []any, groupPrefix string, attr slog.Attr) []any {
 
 	switch attr.Value.Kind() {
 	case slog.KindGroup:
-		if attr.Key != "" {
-			groupPrefix = groupPrefix + "." + attr.Key
-		}
-		for _, a := range attr.Value.Group() {
-			pairs = appendPair(pairs, groupPrefix, a)
+		attrs := attr.Value.Group()
+		if len(attrs) > 0 {
+			// Only process groups that have non-empty attributes
+			// to properly conform to slog.Handler interface
+			// contract.
+
+			if attr.Key != "" {
+				// If a group's key is empty, attributes should
+				// be inlined to properly conform to
+				// slog.Handler interface contract.
+				if groupPrefix != "" {
+					groupPrefix = groupPrefix + "." + attr.Key
+				} else {
+					groupPrefix = attr.Key
+				}
+			}
+			for _, a := range attrs {
+				pairs = appendPair(pairs, groupPrefix, a)
+			}
 		}
 	default:
 		key := attr.Key

@@ -74,6 +74,7 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 	}
 	pairs = append(pairs, slog.MessageKey, record.Message)
 
+	// preformatted attributes have already had their group prefix applied in WithAttr
 	for _, a := range h.preformatted {
 		pairs = appendPair(pairs, "", a)
 	}
@@ -91,6 +92,7 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 func (h *GoKitHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	pairs := make([]slog.Attr, 0, len(attrs)+len(h.preformatted))
 	for _, attr := range attrs {
+		// preresolve the group to simplify attr tracking
 		if h.group != "" {
 			attr.Key = h.group + "." + attr.Key
 		}

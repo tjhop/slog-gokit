@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 	"testing/slogtest"
+	"time"
 
 	"github.com/go-kit/log"
 	"github.com/go-logfmt/logfmt"
@@ -31,12 +33,22 @@ func TestNewGoKitHandler(t *testing.T) {
 			// Print logs for humans.
 			fmt.Println(buf.String())
 
-			dec := logfmt.NewDecoder(&buf)
+			// wrap the buffer in a new reader as pre-go 1.24 the
+			// slogtest package calls results() multiple times, which
+			// causes the tests to pass _without running checks_.
+			// See https://github.com/golang/go/issues/67605
+			dec := logfmt.NewDecoder(strings.NewReader(buf.String()))
 			for dec.ScanRecord() {
-				m := make(map[string]any)
-
+				m := map[string]any{}
 				for dec.ScanKeyval() {
-					m[string(dec.Key())] = dec.Value()
+					k, v, err := parseValue(string(dec.Key()), dec.Value())
+					require.NoError(t, err)
+					// If it's a map, merge it with the current map
+					if m[k] != nil && reflect.TypeOf(m[k]).Kind() == reflect.Map {
+						m[k] = mergeMaps(m[k].(map[string]any), v.(map[string]any))
+						continue
+					}
+					m[k] = v
 				}
 				ms = append(ms, m)
 			}
@@ -61,12 +73,18 @@ func TestNewGoKitHandler(t *testing.T) {
 			// Print logs for humans.
 			fmt.Println(buf.String())
 
-			dec := logfmt.NewDecoder(&buf)
+			dec := logfmt.NewDecoder(strings.NewReader(buf.String()))
 			for dec.ScanRecord() {
-				m := make(map[string]any)
-
+				m := map[string]any{}
 				for dec.ScanKeyval() {
-					m[string(dec.Key())] = dec.Value()
+					k, v, err := parseValue(string(dec.Key()), dec.Value())
+					require.NoError(t, err)
+					// If it's a map, merge it with the current map
+					if m[k] != nil && reflect.TypeOf(m[k]).Kind() == reflect.Map {
+						m[k] = mergeMaps(m[k].(map[string]any), v.(map[string]any))
+						continue
+					}
+					m[k] = v
 				}
 				ms = append(ms, m)
 			}
@@ -135,4 +153,46 @@ func getLogEntryLevelCounts(s string, re *regexp.Regexp) map[string]int {
 	}
 
 	return counters
+}
+
+func mergeMaps(m1, m2 map[string]any) map[string]any {
+	for k, v := range m2 {
+		if m1[k] != nil && reflect.TypeOf(m1[k]).Kind() == reflect.Map {
+			m1[k] = mergeMaps(m1[k].(map[string]any), v.(map[string]any))
+			continue
+		}
+		m1[k] = v
+	}
+	return m1
+}
+
+func parseValue(key string, value []byte) (string, any, error) {
+	switch key {
+	case "level":
+		var l slog.Level
+		err := l.UnmarshalText([]byte(value))
+		if err != nil {
+			return key, nil, err
+		}
+		return key, l, nil
+	case "time":
+		// parse timestamp in iso8601 2025-02-20T16:58:30.683457-05:00
+		parsedTime, err := time.Parse(time.RFC3339Nano, string(value))
+		if err != nil {
+			return key, nil, err
+		}
+		return key, parsedTime, nil
+	}
+
+	groups := strings.SplitN(key, ".", 2)
+	if len(groups) != 2 {
+		return key, string(value), nil
+	}
+
+	k, v, err := parseValue(groups[1], value)
+	if err != nil {
+		return key, nil, err
+	}
+
+	return groups[0], map[string]any{k: v}, nil
 }

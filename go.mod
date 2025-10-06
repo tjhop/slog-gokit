@@ -6,7 +6,7 @@ require github.com/go-kit/log v0.2.1
 
 require (
 	github.com/go-logfmt/logfmt v0.6.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 )
 
 require (

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"testing/slogtest"
 	"time"
@@ -195,4 +196,94 @@ func parseValue(key string, value []byte) (string, any, error) {
 	}
 
 	return groups[0], map[string]any{k: v}, nil
+}
+
+// TestWithAttrsConcurrency specifically tests for race conditions when
+// multiple goroutines call WithAttrs on the same handler concurrently.
+// This reproduces the exact scenario from the bug report where multiple
+// goroutines share a logger and call .With() simultaneously.
+//
+// The race occurs in the buggy code at: pairs = append(h.preformatted, pairs...)
+// When h.preformatted has capacity to hold the additional elements, append
+// writes to the shared underlying array, causing concurrent goroutines to
+// write to the same memory location.
+func TestWithAttrsConcurrency(t *testing.T) {
+	handler := slgk.NewGoKitHandler(nil, nil)
+
+	// Create a handler with attributes. The key is to create a scenario
+	// where h.preformatted will have extra capacity.
+	handler = handler.WithAttrs([]slog.Attr{
+		slog.String("base", "value"),
+	})
+
+	// Call WithAttrs multiple times in quick succession to increase the
+	// chance that the preformatted slice has extra capacity
+	for i := 0; i < 5; i++ {
+		handler = handler.WithAttrs([]slog.Attr{
+			slog.String(fmt.Sprintf("key%d", i), fmt.Sprintf("val%d", i)),
+		})
+	}
+
+	const numGoroutines = 50
+	const iterations = 1000
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	// Simulate the exact pattern from the race detector report:
+	// multiple goroutines calling .With() (which calls WithAttrs) concurrently
+	// on the SAME handler instance
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				// This triggers the race in the buggy code:
+				// append(h.preformatted, pairs...) causes multiple goroutines
+				// to write to the same underlying array
+				_ = handler.WithAttrs([]slog.Attr{
+					slog.Int("g", id),
+					slog.Int("i", j),
+				})
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// TestWithAttrsImmutability verifies that calling WithAttrs doesn't
+// modify the original handler, ensuring proper immutability.
+func TestWithAttrsImmutability(t *testing.T) {
+	var buf1, buf2 bytes.Buffer
+
+	handler1 := slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf1), nil)
+
+	// Add initial attributes
+	handler1 = handler1.WithAttrs([]slog.Attr{
+		slog.String("key1", "value1"),
+	})
+
+	// Create a new handler with additional attributes
+	handler2 := handler1.WithAttrs([]slog.Attr{
+		slog.String("key2", "value2"),
+	})
+
+	// Verify both handlers exist and are different
+	require.NotEqual(t, handler1, handler2, "WithAttrs should return a new handler instance")
+
+	// Create loggers and use them
+	logger1 := slog.New(handler1)
+	logger2 := slog.New(slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf2), nil).WithAttrs([]slog.Attr{
+		slog.String("key1", "value1"),
+		slog.String("key2", "value2"),
+	}))
+
+	logger1.Info("test1")
+	logger2.Info("test2")
+
+	// Both should work without interfering with each other
+	require.Contains(t, buf1.String(), "key1=value1")
+	require.NotContains(t, buf1.String(), "key2=value2", "Handler 1 should not have key2")
+	require.Contains(t, buf2.String(), "key1=value1")
+	require.Contains(t, buf2.String(), "key2=value2")
 }

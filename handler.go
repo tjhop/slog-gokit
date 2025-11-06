@@ -93,13 +93,8 @@ func (h *GoKitHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	// Make a defensive copy of preformatted attrs to avoid race conditions
 	// when multiple goroutines call WithAttrs concurrently on the same handler
 	var pairs []slog.Attr
-	if h.preformatted != nil {
-		// Copy existing preformatted attrs first
-		pairs = make([]slog.Attr, len(h.preformatted), len(h.preformatted)+len(attrs))
-		copy(pairs, h.preformatted)
-	} else {
-		pairs = make([]slog.Attr, 0, len(attrs))
-	}
+	pairs := make([]slog.Attr, len(h.preformatted), len(h.preformatted)+len(attrs))
+	copy(pairs, h.preformatted)
 
 	// Then append the new attrs
 	for _, attr := range attrs {

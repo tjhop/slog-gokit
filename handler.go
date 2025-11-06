@@ -92,7 +92,6 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 func (h *GoKitHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	// Make a defensive copy of preformatted attrs to avoid race conditions
 	// when multiple goroutines call WithAttrs concurrently on the same handler
-	var pairs []slog.Attr
 	pairs := make([]slog.Attr, len(h.preformatted), len(h.preformatted)+len(attrs))
 	copy(pairs, h.preformatted)
 

@@ -26,7 +26,7 @@ jobs:
       - name: Go Preflight Tests
         run: |
           go mod tidy
-          go test -v ./...
+          go test -race -v ./...
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:

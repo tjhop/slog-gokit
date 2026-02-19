@@ -62,13 +62,21 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 
 	logger := goKitLevelFunc(h.logger, record.Level)
 
-	// 1 slog.Attr == 1 key and 1 value, set capacity >= (2 * num attrs).
+	// Pre-compute slice capacity for logger pairs and include 50% buffer
+	// to account for nested group expansion, optimizes away some 1-2
+	// allocations under several common scenarios and improves
+	// latency/memory usage.
+	// 
+	// 1 slog.Attr == 1 key and 1 value. 
 	//
-	// Note: this could probably be (micro)-optimized further -- we know we
-	// need to also append on a timestamp from the record, the message, the
-	// preformatted vals, all things we more or less know the size of at
-	// creation time here.
-	pairs := make([]any, 0, (2 * record.NumAttrs()))
+	// We know we need:
+	// - 2 for timestamp (key + value)
+	// - 2 for message (key + value)
+	// - 2 * len(preformatted) for preformatted attrs
+	// - 2 * record.NumAttrs() for record attrs
+	capacity := 4 + (2 * len(h.preformatted)) + (2 * record.NumAttrs())
+	capacity += (capacity / 2)
+	pairs := make([]any, 0, capacity)
 	if !record.Time.IsZero() {
 		pairs = append(pairs, slog.TimeKey, record.Time)
 	}

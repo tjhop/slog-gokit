@@ -80,7 +80,7 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 	}
 	pairs = append(pairs, slog.MessageKey, record.Message)
 
-	// Bulk-append pre-flattened attrs, group prefixes were resoled at
+	// Bulk-append pre-flattened attrs, group prefixes were resolved at
 	// WithAttrs() call.
 	pairs = append(pairs, h.preformatted...)
 

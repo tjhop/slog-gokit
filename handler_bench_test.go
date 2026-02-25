@@ -25,7 +25,7 @@ func BenchmarkBasicLog(b *testing.B) {
 	}
 
 	for _, sc := range scenarios {
-		sc := sc // Needed because this library supports pre-go.122
+		sc := sc // Needed because this library supports pre-go1.22
 		b.Run(sc.name, func(b *testing.B) {
 			h := slgk.NewGoKitHandler(log.NewLogfmtLogger(io.Discard), nil)
 			logger := slog.New(h)
@@ -62,7 +62,7 @@ func BenchmarkLogLevels(b *testing.B) {
 	}
 
 	for _, tc := range cases {
-		tc := tc // Needed because this library supports pre-go.122
+		tc := tc // Needed because this library supports pre-go1.22
 		b.Run(tc.name, func(b *testing.B) {
 			handlerLevel := &slog.LevelVar{}
 			handlerLevel.Set(tc.minLevel)
@@ -98,7 +98,7 @@ func BenchmarkWithAttrsChaining(b *testing.B) {
 	depths := []int{1, 3, 5, 10, 20}
 
 	for _, depth := range depths {
-		depth := depth // Needed because this library supports pre-go.122
+		depth := depth // Needed because this library supports pre-go1.22
 		b.Run(fmt.Sprintf("Depth%d", depth), func(b *testing.B) {
 			h := slgk.NewGoKitHandler(log.NewLogfmtLogger(io.Discard), nil)
 			logger := slog.New(h)
@@ -124,7 +124,7 @@ func BenchmarkWithGroupNesting(b *testing.B) {
 	depths := []int{1, 3, 5, 10}
 
 	for _, depth := range depths {
-		depth := depth // Needed because this library supports pre-go.122
+		depth := depth // Needed because this library supports pre-go1.22
 		b.Run(fmt.Sprintf("Depth%d", depth), func(b *testing.B) {
 			h := slgk.NewGoKitHandler(log.NewLogfmtLogger(io.Discard), nil)
 			logger := slog.New(h)
@@ -199,7 +199,7 @@ func BenchmarkAttributeTypes(b *testing.B) {
 	}
 
 	for _, tc := range types {
-		tc := tc // Needed because this library supports pre-go.122
+		tc := tc // Needed because this library supports pre-go1.22
 		b.Run(tc.name, func(b *testing.B) {
 			h := slgk.NewGoKitHandler(log.NewLogfmtLogger(io.Discard), nil)
 			logger := slog.New(h)
@@ -221,7 +221,7 @@ func BenchmarkConcurrentLogging(b *testing.B) {
 	scalingFactors := []int{1, 2, 4, 8, 16}
 
 	for _, scale := range scalingFactors {
-		scale := scale // Needed because this library supports pre-go.122
+		scale := scale // Needed because this library supports pre-go1.22
 		b.Run(fmt.Sprintf("Scale%dx", scale), func(b *testing.B) {
 			h := slgk.NewGoKitHandler(log.NewLogfmtLogger(io.Discard), nil)
 			logger := slog.New(h).With("service", "test")

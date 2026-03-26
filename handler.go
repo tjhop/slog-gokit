@@ -17,8 +17,15 @@ var defaultGoKitLogger = log.NewLogfmtLogger(os.Stderr)
 type GoKitHandler struct {
 	level        slog.Leveler
 	logger       log.Logger
-	preformatted []any // pre-flattened key-value pairs, ready to pass directly to logger.Log()
+	levelLoggers *levelLoggerCache // pre-built leveled loggers
+	preformatted []any             // pre-flattened key-value pairs, ready to pass directly to logger.Log()
 	group        string
+}
+
+func setCaller(logger log.Logger) log.Logger {
+	// Adjust runtime call depth to compensate for the adapter and point to
+	// the appropriate source line.
+	return log.With(logger, "caller", log.Caller(6))
 }
 
 // NewGoKitHandler returns a new slog logger from the provided go-kit
@@ -30,15 +37,17 @@ func NewGoKitHandler(logger log.Logger, level slog.Leveler) slog.Handler {
 		logger = defaultGoKitLogger
 	}
 
-	// Adjust runtime call depth to compensate for the adapter and point to
-	// the appropriate source line.
-	logger = log.With(logger, "caller", log.Caller(6))
+	logger = setCaller(logger)
 
 	if level == nil {
 		level = &slog.LevelVar{} // Info level by default.
 	}
 
-	return &GoKitHandler{logger: logger, level: level}
+	return &GoKitHandler{
+		logger:       logger,
+		level:        level,
+		levelLoggers: newLevelCache(logger),
+	}
 }
 
 // Enabled returns true if the internal slog.Leveler is enabled for the
@@ -52,7 +61,7 @@ func (h *GoKitHandler) Enabled(_ context.Context, level slog.Level) bool {
 // are formatted and added to the log call as individual key/value pairs. It
 // implements slog.Handler.
 func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
-	logger := goKitLevelFunc(h.logger, record.Level)
+	logger := h.levelLoggers.get(record.Level)
 
 	// Pre-compute slice capacity. h.preformatted is already flattened to []any
 	// key-value pairs at WithAttrs time, so len(h.preformatted) is the exact
@@ -104,6 +113,7 @@ func (h *GoKitHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &GoKitHandler{
 		logger:       h.logger,
 		level:        h.level,
+		levelLoggers: h.levelLoggers,
 		preformatted: pairs,
 		group:        h.group,
 	}
@@ -124,6 +134,7 @@ func (h *GoKitHandler) WithGroup(name string) slog.Handler {
 	return &GoKitHandler{
 		logger:       h.logger,
 		level:        h.level,
+		levelLoggers: h.levelLoggers,
 		preformatted: h.preformatted,
 		group:        g,
 	}

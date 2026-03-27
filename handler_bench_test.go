@@ -1,6 +1,7 @@
 package sloggokit_test
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -262,4 +263,117 @@ func BenchmarkConcurrentWithAttrsThenLog(b *testing.B) {
 			i++
 		}
 	})
+}
+
+// BenchmarkHandleOnly isolates Handle() with varying amounts of pre-flattened
+// attributes and zero record-level attributes. This highlights the cost of the
+// bulk-append path (append(pairs, h.preformatted...)) without noise from
+// per-attr processing on the record side.
+func BenchmarkHandleOnly(b *testing.B) {
+	preformattedCounts := []int{0, 5, 20}
+
+	for _, n := range preformattedCounts {
+		n := n // Needed because this library supports pre-go1.22
+		b.Run(fmt.Sprintf("Preformatted%d", n), func(b *testing.B) {
+			h := slgk.NewGoKitHandler(log.NewLogfmtLogger(io.Discard), nil)
+			logger := slog.New(h)
+
+			// Build up pre-flattened attrs via With()
+			for i := 0; i < n; i++ {
+				logger = logger.With(
+					slog.String(fmt.Sprintf("pre%d", i), fmt.Sprintf("val%d", i)),
+				)
+			}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				// Log with no record-level attrs -- only the
+				// pre-flattened bulk-append path is exercised.
+				logger.Info("benchmark message")
+			}
+		})
+	}
+}
+
+// BenchmarkEnabledCheck micro-benchmarks the Enabled() guard at matching and
+// non-matching levels. The enabled case adds the overhead of the subsequent
+// Handle() call; the disabled case should be nearly free.
+func BenchmarkEnabledCheck(b *testing.B) {
+	cases := []struct {
+		name     string
+		logLevel slog.Level
+		minLevel slog.Level
+	}{
+		{"Enabled_DebugAtDebug", slog.LevelDebug, slog.LevelDebug},
+		{"Enabled_InfoAtInfo", slog.LevelInfo, slog.LevelInfo},
+		{"Disabled_DebugAtInfo", slog.LevelDebug, slog.LevelInfo},
+		{"Disabled_DebugAtError", slog.LevelDebug, slog.LevelError},
+		{"Disabled_InfoAtWarn", slog.LevelInfo, slog.LevelWarn},
+		{"Disabled_WarnAtError", slog.LevelWarn, slog.LevelError},
+	}
+
+	for _, tc := range cases {
+		tc := tc // Needed because this library supports pre-go1.22
+		b.Run(tc.name, func(b *testing.B) {
+			lvl := &slog.LevelVar{}
+			lvl.Set(tc.minLevel)
+			h := slgk.NewGoKitHandler(log.NewLogfmtLogger(io.Discard), lvl)
+			logger := slog.New(h)
+
+			// Pre-build the method ref to ensure we're comparing
+			// apples to apples across levels.
+			var logFn func(string, ...any)
+			switch tc.logLevel {
+			case slog.LevelDebug:
+				logFn = logger.Debug
+			case slog.LevelInfo:
+				logFn = logger.Info
+			case slog.LevelWarn:
+				logFn = logger.Warn
+			case slog.LevelError:
+				logFn = logger.Error
+			}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				logFn("benchmark message", "key", "value")
+			}
+		})
+	}
+}
+
+// BenchmarkLevelSelection measures the cost of levelLoggerCache.get() across
+// all four levels. With the level caching optimization, this should show zero
+// allocations (the leveled loggers are pre-built at handler construction time).
+func BenchmarkLevelSelection(b *testing.B) {
+	levels := []struct {
+		name  string
+		level slog.Level
+	}{
+		{"Debug", slog.LevelDebug},
+		{"Info", slog.LevelInfo},
+		{"Warn", slog.LevelWarn},
+		{"Error", slog.LevelError},
+	}
+
+	for _, tc := range levels {
+		tc := tc // Needed because this library supports pre-go1.22
+		b.Run(tc.name, func(b *testing.B) {
+			lvl := &slog.LevelVar{}
+			lvl.Set(tc.level)
+			h := slgk.NewGoKitHandler(log.NewLogfmtLogger(io.Discard), lvl)
+			logger := slog.New(h)
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				// Each iteration exercises the full path: Enabled() + Handle()
+				// (including levelLoggers.get()), but with minimal attrs to
+				// isolate level selection cost.
+				logger.Log(context.Background(), tc.level, "msg")
+			}
+		})
+	}
 }

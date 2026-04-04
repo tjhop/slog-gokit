@@ -12,6 +12,12 @@ var _ slog.Handler = (*GoKitHandler)(nil)
 
 var defaultGoKitLogger = log.NewLogfmtLogger(os.Stderr)
 
+// Pay boxing cost once at package init, save 2 heap escapes per Handle() call.
+var (
+	timeKey any = slog.TimeKey
+	msgKey  any = slog.MessageKey
+)
+
 // GoKitHandler implements the slog.Handler interface. It holds an internal
 // go-kit logger that is used to perform the true logging.
 type GoKitHandler struct {
@@ -90,9 +96,9 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 	capacity := 4 + len(h.preformatted) + (3 * record.NumAttrs())
 	pairs := make([]any, 0, capacity)
 	if !record.Time.IsZero() {
-		pairs = append(pairs, slog.TimeKey, record.Time)
+		pairs = append(pairs, timeKey, record.Time)
 	}
-	pairs = append(pairs, slog.MessageKey, record.Message)
+	pairs = append(pairs, msgKey, record.Message)
 
 	// Bulk-append pre-flattened attrs, group prefixes were resolved at
 	// WithAttrs() call.

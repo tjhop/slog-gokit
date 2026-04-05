@@ -8,13 +8,13 @@ import (
 )
 
 func goKitLevelFunc(logger log.Logger, lvl slog.Level) log.Logger {
-	switch lvl {
-	case slog.LevelInfo:
-		logger = level.Info(logger)
-	case slog.LevelWarn:
-		logger = level.Warn(logger)
-	case slog.LevelError:
+	switch {
+	case lvl >= slog.LevelError:
 		logger = level.Error(logger)
+	case lvl >= slog.LevelWarn:
+		logger = level.Warn(logger)
+	case lvl >= slog.LevelInfo:
+		logger = level.Info(logger)
 	default:
 		logger = level.Debug(logger)
 	}

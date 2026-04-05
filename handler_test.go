@@ -2,6 +2,7 @@ package sloggokit_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -286,4 +287,42 @@ func TestWithAttrsImmutability(t *testing.T) {
 	require.NotContains(t, buf1.String(), "key2=value2", "Handler 1 should not have key2")
 	require.Contains(t, buf2.String(), "key1=value1")
 	require.Contains(t, buf2.String(), "key2=value2")
+}
+
+// TestCustomLevelMapping verifies that custom slog levels (values between or
+// beyond the four standard levels) map to the correct go-kit level string.
+// This is a regression test for the range-based level mapping fix: before the
+// fix, any non-standard level fell through to "debug".
+func TestCustomLevelMapping(t *testing.T) {
+	cases := []struct {
+		name      string
+		level     slog.Level
+		wantLevel string
+	}{
+		{"ExactDebug", slog.LevelDebug, "debug"},
+		{"ExactInfo", slog.LevelInfo, "info"},
+		{"ExactWarn", slog.LevelWarn, "warn"},
+		{"ExactError", slog.LevelError, "error"},
+		{"BelowDebug", slog.LevelDebug - 1, "debug"},
+		{"BetweenDebugAndInfo", slog.LevelDebug + 1, "debug"},
+		{"BetweenInfoAndWarn", slog.LevelInfo + 1, "info"},
+		{"BetweenWarnAndError", slog.LevelWarn + 1, "warn"},
+		{"AboveError", slog.LevelError + 4, "error"},
+	}
+	for _, tc := range cases {
+		tc := tc // Needed because this library supports pre-go1.22
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			lvl := &slog.LevelVar{}
+			lvl.Set(slog.LevelDebug - 1) // Allow all levels through
+			h := slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf), lvl)
+			logger := slog.New(h)
+
+			logger.Log(context.Background(), tc.level, "test message")
+
+			output := buf.String()
+			require.Contains(t, output, fmt.Sprintf("level=%s", tc.wantLevel),
+				"level=%s: got output %q", tc.wantLevel, output)
+		})
+	}
 }

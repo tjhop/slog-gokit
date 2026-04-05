@@ -44,10 +44,6 @@ func NewGoKitHandler(logger log.Logger, level slog.Leveler) slog.Handler {
 // Enabled returns true if the internal slog.Leveler is enabled for the
 // provided log level. It implements slog.Handler.
 func (h *GoKitHandler) Enabled(_ context.Context, level slog.Level) bool {
-	if h.level == nil {
-		h.level = &slog.LevelVar{} // Info level by default.
-	}
-
 	return level >= h.level.Level()
 }
 
@@ -56,10 +52,6 @@ func (h *GoKitHandler) Enabled(_ context.Context, level slog.Level) bool {
 // are formatted and added to the log call as individual key/value pairs. It
 // implements slog.Handler.
 func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
-	if h.logger == nil {
-		h.logger = defaultGoKitLogger
-	}
-
 	logger := goKitLevelFunc(h.logger, record.Level)
 
 	// Pre-compute slice capacity. h.preformatted is already flattened to []any

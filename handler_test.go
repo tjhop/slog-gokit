@@ -326,3 +326,42 @@ func TestCustomLevelMapping(t *testing.T) {
 		})
 	}
 }
+
+// TestZeroValueHandlerPanics verifies that a zero-value GoKitHandler panics
+// when Enabled or Handle is called, matching the stdlib pattern where
+// slog.JSONHandler and slog.TextHandler also panic when not constructed via
+// their constructors. This documents that NewGoKitHandler is required.
+//
+// WithAttrs and WithGroup don't panic because they only copy fields into a
+// new struct without dereferencing pointers. The resulting child handler
+// will panic when Enabled or Handle is called on it.
+func TestZeroValueHandlerPanics(t *testing.T) {
+	t.Run("Enabled", func(t *testing.T) {
+		h := &slgk.GoKitHandler{}
+		require.Panics(t, func() {
+			h.Enabled(context.Background(), slog.LevelInfo)
+		})
+	})
+	t.Run("Handle", func(t *testing.T) {
+		h := &slgk.GoKitHandler{}
+		require.Panics(t, func() {
+			record := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
+			_ = h.Handle(context.Background(), record)
+		})
+	})
+	t.Run("WithAttrs_then_Enabled", func(t *testing.T) {
+		h := &slgk.GoKitHandler{}
+		child := h.WithAttrs([]slog.Attr{slog.String("k", "v")})
+		require.Panics(t, func() {
+			child.Enabled(context.Background(), slog.LevelInfo)
+		})
+	})
+	t.Run("WithGroup_then_Handle", func(t *testing.T) {
+		h := &slgk.GoKitHandler{}
+		child := h.WithGroup("g")
+		require.Panics(t, func() {
+			record := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
+			_ = child.Handle(context.Background(), record)
+		})
+	})
+}

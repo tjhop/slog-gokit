@@ -28,12 +28,6 @@ type GoKitHandler struct {
 	group        string
 }
 
-func setCaller(logger log.Logger) log.Logger {
-	// Adjust runtime call depth to compensate for the adapter and point to
-	// the appropriate source line.
-	return log.With(logger, "caller", log.Caller(6))
-}
-
 // NewGoKitHandler returns a new slog logger from the provided go-kit
 // logger. Calls to the slog logger are chained to the handler's internal
 // go-kit logger. If provided a level, it will be used to filter log events in
@@ -43,7 +37,9 @@ func NewGoKitHandler(logger log.Logger, level slog.Leveler) slog.Handler {
 		logger = defaultGoKitLogger
 	}
 
-	logger = setCaller(logger)
+	// Adjust runtime call depth to compensate for the adapter and point to
+	// the appropriate source line.
+	logger = log.With(logger, "caller", log.Caller(6))
 
 	if level == nil {
 		level = &slog.LevelVar{} // Info level by default.

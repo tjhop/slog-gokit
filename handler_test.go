@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -363,5 +365,56 @@ func TestZeroValueHandlerPanics(t *testing.T) {
 			record := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
 			_ = child.Handle(context.Background(), record)
 		})
+	})
+}
+
+// passthroughHandler forwards records unchanged, simulating slog middleware
+// wrapping the handler. Fixed-depth caller unwinding reports the wrong frame
+// under this wrapping; resolution from record.PC must not.
+type passthroughHandler struct{ next slog.Handler }
+
+func (p passthroughHandler) Enabled(ctx context.Context, l slog.Level) bool {
+	return p.next.Enabled(ctx, l)
+}
+
+func (p passthroughHandler) Handle(ctx context.Context, r slog.Record) error {
+	return p.next.Handle(ctx, r)
+}
+
+func (p passthroughHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return passthroughHandler{next: p.next.WithAttrs(attrs)}
+}
+
+func (p passthroughHandler) WithGroup(name string) slog.Handler {
+	return passthroughHandler{next: p.next.WithGroup(name)}
+}
+
+// TestCaller verifies that the "caller" key is resolved from the record's PC
+// and points at the actual log call site.
+func TestCaller(t *testing.T) {
+	t.Run("direct call site", func(t *testing.T) {
+		var buf bytes.Buffer
+		slogger := slog.New(slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf), nil))
+
+		_, file, line, _ := runtime.Caller(0)
+		slogger.Info("hello") // must stay on the line after the runtime.Caller call
+		require.Contains(t, buf.String(), fmt.Sprintf("caller=%s:%d", filepath.Base(file), line+1))
+	})
+	t.Run("wrapped in middleware handler", func(t *testing.T) {
+		var buf bytes.Buffer
+		h := slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf), nil)
+		slogger := slog.New(passthroughHandler{next: h})
+
+		_, file, line, _ := runtime.Caller(0)
+		slogger.Info("hello") // must stay on the line after the runtime.Caller call
+		require.Contains(t, buf.String(), fmt.Sprintf("caller=%s:%d", filepath.Base(file), line+1))
+	})
+	t.Run("record without PC omits caller", func(t *testing.T) {
+		var buf bytes.Buffer
+		h := slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf), nil)
+
+		record := slog.NewRecord(time.Now(), slog.LevelInfo, "direct handle call", 0)
+		require.NoError(t, h.Handle(context.Background(), record))
+		require.NotContains(t, buf.String(), "caller=")
 	})
 }

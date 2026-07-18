@@ -27,8 +27,7 @@ var (
 type GoKitHandler struct {
 	level        slog.Leveler
 	logger       log.Logger
-	levelLoggers *levelLoggerCache // pre-built leveled loggers
-	preformatted []any             // pre-flattened key-value pairs, ready to pass directly to logger.Log()
+	preformatted []any // pre-flattened key-value pairs, ready to pass directly to logger.Log()
 	group        string
 }
 
@@ -51,9 +50,8 @@ func NewGoKitHandler(logger log.Logger, level slog.Leveler) slog.Handler {
 	}
 
 	return &GoKitHandler{
-		logger:       logger,
-		level:        level,
-		levelLoggers: newLevelCache(logger),
+		logger: logger,
+		level:  level,
 	}
 }
 
@@ -68,8 +66,6 @@ func (h *GoKitHandler) Enabled(_ context.Context, level slog.Level) bool {
 // are formatted and added to the log call as individual key/value pairs. It
 // implements slog.Handler.
 func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
-	logger := h.levelLoggers.get(record.Level)
-
 	// Pre-compute slice capacity. h.preformatted is already flattened to []any
 	// key-value pairs at WithAttrs time, so len(h.preformatted) is the exact
 	// item count -- no expansion buffer needed for that portion. Record attrs
@@ -77,13 +73,19 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 	// buffer for that portion's estimated capacity only.
 	//
 	// We know we need:
+	// - 2 for level (key + value)
 	// - 2 for caller (key + value)
 	// - 2 for timestamp (key + value)
 	// - 2 for message (key + value)
 	// - len(h.preformatted) exact items (pre-flattened, no expansion)
 	// - 2 * record.NumAttrs() for record attrs, +50% buffer for group expansion
-	capacity := 6 + len(h.preformatted) + (3 * record.NumAttrs())
+	capacity := 8 + len(h.preformatted) + (3 * record.NumAttrs())
 	pairs := make([]any, 0, capacity)
+
+	// Append the level directly as the first pair. Matches how the log
+	// message is constructed through level.Info()/level.Debug()/etc
+	// wrappers, but without the extra allocation/copy per call.
+	pairs = append(pairs, levelKey, gokitLevelValue(record.Level))
 
 	// Resolve the log call site from the PC that slog captured when the
 	// record was created. Cheaper and more accurate to do it here since
@@ -117,7 +119,7 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 		return true
 	})
 
-	return logger.Log(pairs...)
+	return h.logger.Log(pairs...)
 }
 
 // WithAttrs formats the provided attributes and caches them in the handler to
@@ -140,7 +142,6 @@ func (h *GoKitHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &GoKitHandler{
 		logger:       h.logger,
 		level:        h.level,
-		levelLoggers: h.levelLoggers,
 		preformatted: pairs,
 		group:        h.group,
 	}
@@ -161,7 +162,6 @@ func (h *GoKitHandler) WithGroup(name string) slog.Handler {
 	return &GoKitHandler{
 		logger:       h.logger,
 		level:        h.level,
-		levelLoggers: h.levelLoggers,
 		preformatted: h.preformatted,
 		group:        g,
 	}

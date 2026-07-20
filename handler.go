@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/go-kit/log"
 )
@@ -21,6 +22,19 @@ var (
 	msgKey    any = slog.MessageKey
 	callerKey any = "caller"
 )
+
+// callerCache memoizes resolved caller strings keyed by record PC. A PC's
+// file:line mapping is fixed for the process lifetime and log call sites are
+// static, so the cache is write-once, read-many and bounded by the number of
+// distinct call sites. 
+//
+// Kubernetes's klog does something similar to cache per-call-site verbosity
+// levels by PC (`vmap` in
+// https://github.com/kubernetes/klog/blob/main/klog.go).
+//
+// Values are stored pre-boxed as `any` so cache hits append into the pairs
+// slice with zero allocations, and no need to walk the call stack.
+var callerCache sync.Map // map[uintptr]any, values are `file:line` strings.
 
 // GoKitHandler implements the slog.Handler interface. It holds an internal
 // go-kit logger that is used to perform the true logging.
@@ -92,16 +106,22 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 	// it's already captured, vs relying on setting `log.Caller()` depth
 	// and hoping it unwinds correctly.
 	if record.PC != 0 {
-		fs := runtime.CallersFrames([]uintptr{record.PC})
-		f, _ := fs.Next()
-		if f.File != "" {
-			// Trim to basename:line with the same logic as
-			// go-kit's log.Caller:
-			// https://github.com/go-kit/log/blob/v0.2.1/value.go#L84-L93
-			// 
-			// path.Base() would work, opting for direct compatibility.
-			idx := strings.LastIndexByte(f.File, '/')
-			pairs = append(pairs, callerKey, f.File[idx+1:]+":"+strconv.Itoa(f.Line))
+		if caller, ok := callerCache.Load(record.PC); ok {
+			pairs = append(pairs, callerKey, caller)
+		} else {
+			fs := runtime.CallersFrames([]uintptr{record.PC})
+			f, _ := fs.Next()
+			if f.File != "" {
+				// Trim to basename:line with the same logic as
+				// go-kit's log.Caller:
+				// https://github.com/go-kit/log/blob/v0.2.1/value.go#L84-L93
+				//
+				// path.Base() would work, opting for direct compatibility.
+				idx := strings.LastIndexByte(f.File, '/')
+				caller := any(f.File[idx+1:] + ":" + strconv.Itoa(f.Line))
+				callerCache.Store(record.PC, caller)
+				pairs = append(pairs, callerKey, caller)
+			}
 		}
 	}
 

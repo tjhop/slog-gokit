@@ -418,3 +418,84 @@ func TestCaller(t *testing.T) {
 		require.NotContains(t, buf.String(), "caller=")
 	})
 }
+
+// TestCallerCache verifies that cached caller resolution stays keyed to the
+// right call site: repeated logs from one site (cache hits after the first
+// resolution) and logs from distinct sites must each report their own
+// file:line.
+func TestCallerCache(t *testing.T) {
+	var buf bytes.Buffer
+	slogger := slog.New(slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf), nil))
+
+	_, file, line, _ := runtime.Caller(0)
+	slogger.Info("first")  // cache miss, resolves and stores this PC
+	slogger.Info("second") // distinct call site, its own PC and line
+	for i := 0; i < 3; i++ {
+		slogger.Info("loop") // misses once, then hits the cached PC
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	require.Len(t, lines, 5)
+
+	base := filepath.Base(file)
+	require.Contains(t, lines[0], fmt.Sprintf("caller=%s:%d", base, line+1))
+	require.Contains(t, lines[1], fmt.Sprintf("caller=%s:%d", base, line+2))
+	for _, logLine := range lines[2:] {
+		require.Contains(t, logLine, fmt.Sprintf("caller=%s:%d", base, line+4))
+	}
+}
+
+// TestConcurrentHandle drives Handle() concurrently through a single handler
+// from multiple call sites. Under -race this covers the caller cache's
+// concurrent paths: goroutines racing to first-resolve the same PC and
+// lock-free reads on cache hits. TestWithAttrsConcurrency only exercises
+// WithAttrs, so without this test the Handle path has no race coverage at
+// all. Every emitted line is checked against the set of known call sites.
+func TestConcurrentHandle(t *testing.T) {
+	var buf bytes.Buffer
+	// SyncWriter serializes the underlying writes so concurrently logged
+	// lines cannot interleave mid-line.
+	slogger := slog.New(slgk.NewGoKitHandler(log.NewLogfmtLogger(log.NewSyncWriter(&buf)), nil))
+
+	_, file, line, _ := runtime.Caller(0)
+	sites := []func(){
+		func() { slogger.Info("concurrent site a") },
+		func() { slogger.Info("concurrent site b") },
+		func() { slogger.Info("concurrent site c") },
+	}
+
+	const numGoroutines = 8
+	const iterations = 200
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+	for g := 0; g < numGoroutines; g++ {
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				sites[(id+i)%len(sites)]()
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	base := filepath.Base(file)
+	want := []string{
+		fmt.Sprintf("caller=%s:%d", base, line+2),
+		fmt.Sprintf("caller=%s:%d", base, line+3),
+		fmt.Sprintf("caller=%s:%d", base, line+4),
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	require.Len(t, lines, numGoroutines*iterations)
+	for _, logLine := range lines {
+		matched := false
+		for _, w := range want {
+			if strings.Contains(logLine, w) {
+				matched = true
+				break
+			}
+		}
+		require.True(t, matched, "log line has unexpected caller: %s", logLine)
+	}
+}

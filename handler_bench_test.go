@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-kit/log"
 	slgk "github.com/tjhop/slog-gokit"
@@ -341,6 +343,86 @@ func BenchmarkEnabledCheck(b *testing.B) {
 				logFn("benchmark message", "key", "value")
 			}
 		})
+	}
+}
+
+// BenchmarkCallerCache measures the caller-resolution path in Handle() by
+// dispatching records directly to the handler:
+//
+//   - Hit: the record PC is already cached, the steady state every log call
+//     after the first from a given site takes. The caller portion must stay
+//     zero-allocation (the cached value is pre-boxed).
+//   - NoPC: records without a PC skip caller handling entirely, the floor.
+//
+// Both cases go through the public API only, so they stay comparable across
+// versions: on refs without the PC cache, Hit simply measures whatever
+// per-call caller resolution that version performs from the same warmed,
+// repeated call site. The miss path requires evicting the unexported cache
+// entry, so it lives with the package internals as BenchmarkCallerCacheMiss
+// and is intentionally excluded from cross-version comparison runs.
+func BenchmarkCallerCache(b *testing.B) {
+	h := slgk.NewGoKitHandler(log.NewLogfmtLogger(io.Discard), nil)
+	ctx := context.Background()
+
+	pcs := make([]uintptr, 1)
+	runtime.Callers(1, pcs)
+	pc := pcs[0]
+
+	record := slog.NewRecord(time.Now(), slog.LevelInfo, "benchmark message", pc)
+	noPCRecord := slog.NewRecord(time.Now(), slog.LevelInfo, "benchmark message", 0)
+
+	b.Run("Hit", func(b *testing.B) {
+		// Warm the cache so the first iteration is not a miss.
+		_ = h.Handle(ctx, record)
+
+		b.ResetTimer()
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = h.Handle(ctx, record)
+		}
+	})
+
+	b.Run("NoPC", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = h.Handle(ctx, noPCRecord)
+		}
+	})
+}
+
+// BenchmarkCallerCacheSites rotates logging across several distinct call
+// sites. The rest of the suite loops on a single call site, which measures
+// caller-cache hits against one hot map entry; this measures the same hit
+// path with a populated cache and a different key every iteration. Results
+// should stay in line with the single-site benchmarks -- a divergence means
+// hit cost degrades as the cache grows, which would matter for real programs
+// logging from many sites.
+func BenchmarkCallerCacheSites(b *testing.B) {
+	h := slgk.NewGoKitHandler(log.NewLogfmtLogger(io.Discard), nil)
+	logger := slog.New(h)
+
+	// One closure per line: each body is a distinct call site with its own
+	// PC and cache entry.
+	sites := []func(){
+		func() { logger.Info("benchmark message") },
+		func() { logger.Info("benchmark message") },
+		func() { logger.Info("benchmark message") },
+		func() { logger.Info("benchmark message") },
+		func() { logger.Info("benchmark message") },
+		func() { logger.Info("benchmark message") },
+		func() { logger.Info("benchmark message") },
+		func() { logger.Info("benchmark message") },
+	}
+
+	// Warm every site so the measured loop is all cache hits.
+	for _, site := range sites {
+		site()
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		sites[i%len(sites)]()
 	}
 }
 

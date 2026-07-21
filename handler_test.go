@@ -445,6 +445,62 @@ func TestCallerCache(t *testing.T) {
 	}
 }
 
+// stringValuer is a LogValuer that resolves to a plain string value.
+type stringValuer struct{ s string }
+
+func (v stringValuer) LogValue() slog.Value { return slog.StringValue(v.s) }
+
+// groupValuer is a LogValuer that resolves to a group, the case where
+// resolve-then-expand order is observable: stdlib handlers expand the
+// resolved group into individual keys rather than emitting one value.
+type groupValuer struct{}
+
+func (groupValuer) LogValue() slog.Value {
+	return slog.GroupValue(slog.String("name", "gopher"), slog.Int("age", 42))
+}
+
+// TestLogValuerResolution verifies that LogValuer attrs are resolved before
+// being emitted, and that a LogValuer resolving to a group is expanded into
+// individual dotted keys exactly like a literal group attr, matching the
+// resolve-then-expand order of the stdlib handlers.
+func TestLogValuerResolution(t *testing.T) {
+	t.Run("resolves to scalar", func(t *testing.T) {
+		var buf bytes.Buffer
+		slogger := slog.New(slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf), nil))
+
+		slogger.Info("hello", "who", stringValuer{s: "gopher"})
+		require.Contains(t, buf.String(), "who=gopher")
+	})
+	t.Run("resolves to group", func(t *testing.T) {
+		var buf bytes.Buffer
+		slogger := slog.New(slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf), nil))
+
+		slogger.Info("hello", "req", groupValuer{})
+		require.Contains(t, buf.String(), "req.name=gopher")
+		require.Contains(t, buf.String(), "req.age=42")
+	})
+	t.Run("resolves to group under WithGroup prefix", func(t *testing.T) {
+		var buf bytes.Buffer
+		slogger := slog.New(slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf), nil)).WithGroup("outer")
+
+		slogger.Info("hello", "req", groupValuer{})
+		require.Contains(t, buf.String(), "outer.req.name=gopher")
+		require.Contains(t, buf.String(), "outer.req.age=42")
+	})
+	t.Run("resolves through WithAttrs", func(t *testing.T) {
+		var buf bytes.Buffer
+		slogger := slog.New(slgk.NewGoKitHandler(log.NewLogfmtLogger(&buf), nil).WithAttrs([]slog.Attr{
+			slog.Any("who", stringValuer{s: "gopher"}),
+			slog.Any("req", groupValuer{}),
+		}))
+
+		slogger.Info("hello")
+		require.Contains(t, buf.String(), "who=gopher")
+		require.Contains(t, buf.String(), "req.name=gopher")
+		require.Contains(t, buf.String(), "req.age=42")
+	})
+}
+
 // TestConcurrentHandle drives Handle() concurrently through a single handler
 // from multiple call sites. Under -race this covers the caller cache's
 // concurrent paths: goroutines racing to first-resolve the same PC and

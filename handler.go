@@ -93,7 +93,8 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 	// - 2 for message (key + value)
 	// - len(h.preformatted) exact items (pre-flattened, no expansion)
 	// - 2 * record.NumAttrs() for record attrs, +50% buffer for group expansion
-	capacity := 8 + len(h.preformatted) + (3 * record.NumAttrs())
+	numAttrs := record.NumAttrs()
+	capacity := 8 + len(h.preformatted) + (3 * numAttrs)
 	pairs := make([]any, 0, capacity)
 
 	// Append the level directly as the first pair. Matches how the log
@@ -134,10 +135,13 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 	// WithAttrs() call.
 	pairs = append(pairs, h.preformatted...)
 
-	record.Attrs(func(a slog.Attr) bool {
-		pairs = appendPair(pairs, h.group, a)
-		return true
-	})
+	// Skip the Attrs() call entirely when there are no attrs.
+	if numAttrs > 0 {
+		record.Attrs(func(a slog.Attr) bool {
+			pairs = appendPair(pairs, h.group, a)
+			return true
+		})
+	}
 
 	return h.logger.Log(pairs...)
 }
@@ -145,6 +149,11 @@ func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
 // WithAttrs formats the provided attributes and caches them in the handler to
 // attach to all future log calls. It implements slog.Handler.
 func (h *GoKitHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	// No attrs, return it untouched. 
+	if len(attrs) == 0 {
+		return h
+	}
+
 	// Make a defensive copy of preformatted attrs to avoid race conditions
 	// when multiple goroutines call WithAttrs concurrently on the same handler.
 	// Attrs are pre-flattened to []any key-value pairs here so that Handle()
@@ -188,6 +197,14 @@ func (h *GoKitHandler) WithGroup(name string) slog.Handler {
 }
 
 func appendPair(pairs []any, groupPrefix string, attr slog.Attr) []any {
+	// Resolve LogValuers before the kind switch so value that resolves to
+	// a group is expanded into individual pairs. Aligns with how the
+	// stdlib handlers resolve before expanding, and also avoids the
+	// defer/recover that `Resolve()` incurs.
+	if attr.Value.Kind() == slog.KindLogValuer {
+		attr.Value = attr.Value.Resolve()
+	}
+
 	if attr.Equal(slog.Attr{}) {
 		return pairs
 	}
@@ -220,7 +237,7 @@ func appendPair(pairs []any, groupPrefix string, attr slog.Attr) []any {
 			key = groupPrefix + "." + key
 		}
 
-		pairs = append(pairs, key, attr.Value.Resolve())
+		pairs = append(pairs, key, attr.Value)
 	}
 
 	return pairs

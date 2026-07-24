@@ -237,7 +237,14 @@ func appendPair(pairs []any, groupPrefix string, attr slog.Attr) []any {
 			key = groupPrefix + "." + key
 		}
 
-		pairs = append(pairs, key, attr.Value)
+		// Append string values as raw strings rather than boxed
+		// slog.Values, lean on string path optimizations in slog and
+		// go-kit/log.
+		if attr.Value.Kind() == slog.KindString {
+			pairs = append(pairs, key, attr.Value.String())
+		} else {
+			pairs = append(pairs, key, attr.Value)
+		}
 	}
 
 	return pairs

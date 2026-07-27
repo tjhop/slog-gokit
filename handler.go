@@ -80,21 +80,20 @@ func (h *GoKitHandler) Enabled(_ context.Context, level slog.Level) bool {
 // are formatted and added to the log call as individual key/value pairs. It
 // implements slog.Handler.
 func (h *GoKitHandler) Handle(_ context.Context, record slog.Record) error {
-	// Pre-compute slice capacity. h.preformatted is already flattened to []any
-	// key-value pairs at WithAttrs time, so len(h.preformatted) is the exact
-	// item count -- no expansion buffer needed for that portion. Record attrs
-	// may contain groups that expand beyond 2 items per attr, so include a 50%
-	// buffer for that portion's estimated capacity only.
-	//
-	// We know we need:
+	// Pre-compute slice capacity, sized exactly for records with flat attrs
+	// (the common shape):
 	// - 2 for level (key + value)
 	// - 2 for caller (key + value)
 	// - 2 for timestamp (key + value)
 	// - 2 for message (key + value)
-	// - len(h.preformatted) exact items (pre-flattened, no expansion)
-	// - 2 * record.NumAttrs() for record attrs, +50% buffer for group expansion
+	// - len(h.preformatted) exact items (pre-flattened at WithAttrs time)
+	// - 2 * record.NumAttrs() for record attrs
+	//
+	// Group attrs expand beyond 2 items per attr (a group with n items
+	// counts as one attr but flattens to 2n entries), so they'll need to
+	// be grown anyway.
 	numAttrs := record.NumAttrs()
-	capacity := 8 + len(h.preformatted) + (3 * numAttrs)
+	capacity := 8 + len(h.preformatted) + (2 * numAttrs)
 	pairs := make([]any, 0, capacity)
 
 	// Append the level directly as the first pair. Matches how the log
